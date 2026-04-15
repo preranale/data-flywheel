@@ -1,0 +1,36 @@
+# ============================================================
+# data-flywheel/.gitignore
+# ============================================================
+# Tells Git what NOT to track.
+# Rule: never commit secrets, large data files, or
+# auto-generated artifacts — only source code goes to GitHub.
+# ============================================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Environment secrets
+.env
+
+# Large data files (use .gitkeep to track empty folders)
+data/raw/*
+data/processed/*
+data/models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/models/.gitkeep
+
+# MLflow experiment runs (can get huge)
+mlflow/mlruns/*
+!mlflow/mlruns/.gitkeep
+
+# Mac junk
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

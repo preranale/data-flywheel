@@ -1,0 +1,140 @@
+# ============================================================
+# data-flywheel/docker-compose.yml
+# ============================================================
+# Defines every service in the pipeline.
+# Run: docker compose up --build
+# Stop: docker compose down
+#
+# Services overview:
+#   redis         — message queue (feedback events)
+#   mlflow        — model registry + experiment tracker
+#   inference_api — serves movie recommendations
+#   feedback_api  — receives user signals
+#   feature_pipeline — cleans raw data
+#   trainer       — retrains the model
+#   scheduler     — watches event count, triggers retraining
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # REDIS — our message queue
+  # Why Redis Streams over Kafka?
+  # Kafka needs Zookeeper, JVM, lots of config.
+  # Redis Streams gives the same pub/sub pattern in one
+  # lightweight container. Perfect for a portfolio project.
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # MLFLOW — model registry + experiment tracking UI
+  # Runs at http://localhost:5000
+  # Every training run logs metrics, params, and model here.
+  # ----------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.3
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow/mlruns:/mlruns
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri /mlruns
+      --default-artifact-root /mlruns
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # INFERENCE API — serves recommendations to users
+  # Runs at http://localhost:8000
+  # Auto-docs at http://localhost:8000/docs
+  # ----------------------------------------------------------
+  inference_api:
+    build: ./services/inference_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # FEEDBACK API — collects user signals
+  # Runs at http://localhost:8001
+  # Receives clicks, ratings, and writes them to Redis Stream
+  # ----------------------------------------------------------
+  feedback_api:
+    build: ./services/feedback_api
+    ports:
+      - "8001:8001"
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # FEATURE PIPELINE — processes raw feedback into training data
+  # Not a web server — runs as a background worker
+  # Reads from Redis Stream, writes cleaned data to /data/processed
+  # ----------------------------------------------------------
+  feature_pipeline:
+    build: ./services/feature_pipeline
+    volumes:
+      - ./data:/data
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # SCHEDULER — watches event count, fires retraining
+  # Not a web server — runs as a background loop
+  # Every 30s it checks: enough new data? → trigger trainer
+  # ----------------------------------------------------------
+  scheduler:
+    build: ./services/scheduler
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # TRAINER — retrains model when scheduler calls it
+  # Runs as a one-shot job (exits after training completes)
+  # Logs everything to MLflow, saves model to /data/models
+  # ----------------------------------------------------------
+  trainer:
+    build: ./services/trainer
+    volumes:
+      - ./data:/data
+    env_file: .env
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    profiles:
+      - training
+      # "profiles: training" means this service does NOT start
+      # with regular "docker compose up".
+      # The scheduler triggers it on demand via:
+      # docker compose run trainer
+
