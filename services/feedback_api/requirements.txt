@@ -1,0 +1,9 @@
+# ============================================================
+# Feedback API dependencies
+# Lighter than inference_api — no ML libraries needed here.
+# This service just receives events and writes to Redis.
+# ============================================================
+fastapi==0.110.0
+uvicorn==0.29.0
+redis==5.0.3
+pydantic==2.6.4
