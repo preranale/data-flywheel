@@ -1,0 +1,7 @@
+# ============================================================
+# Scheduler dependencies
+# Minimal — this service just watches Redis and fires a
+# subprocess. No ML, no heavy data processing.
+# ============================================================
+redis==5.0.3
+requests==2.31.0
