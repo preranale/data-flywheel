@@ -1,0 +1,15 @@
+# ============================================================
+# Inference API dependencies
+# FastAPI    — web framework (modern, async, auto-docs)
+# uvicorn    — ASGI server that runs FastAPI
+# redis      — talk to Redis Streams
+# scikit-learn — load and run the ML model
+# pandas     — data manipulation
+# numpy      — numerical operations
+# ============================================================
+fastapi==0.110.0
+uvicorn==0.29.0
+redis==5.0.3
+scikit-learn==1.4.1.post1
+pandas==2.2.1
+numpy==1.26.4
