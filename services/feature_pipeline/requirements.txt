@@ -1,0 +1,12 @@
+# ============================================================
+# Feature Pipeline dependencies
+# pandas    — data cleaning and transformation
+# redis     — read from Redis Stream
+# requests  — download MovieLens dataset
+# scikit-learn — train/test split utility
+# ============================================================
+pandas==2.2.1
+redis==5.0.3
+requests==2.31.0
+scikit-learn==1.4.1.post1
+numpy==1.26.4
