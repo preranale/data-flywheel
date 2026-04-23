@@ -1,6 +1,7 @@
 import os, time, pickle, logging, requests
 import numpy as np, pandas as pd
 import mlflow, mlflow.sklearn
+import redis
 from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
@@ -15,10 +16,15 @@ MODEL_PATH          = os.getenv("MODEL_PATH", "/data/models")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 MODEL_NAME          = os.getenv("MODEL_NAME", "movie-recommender")
 INFERENCE_API_URL   = os.getenv("INFERENCE_API_URL", "http://inference_api:8000")
+REDIS_HOST          = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT          = int(os.getenv("REDIS_PORT", 6379))
+
 TRAIN_CSV  = os.path.join(PROCESSED_DATA_PATH, "train.csv")
 VAL_CSV    = os.path.join(PROCESSED_DATA_PATH, "val.csv")
 MOVIES_CSV = os.path.join(PROCESSED_DATA_PATH, "movies.csv")
 N_COMPONENTS = 50
+
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 
 def load_data():
@@ -68,9 +74,7 @@ def train_model(train_df):
     regressor.fit(X, y)
     logger.info("Training complete")
 
-    # Save as plain dict — no custom class needed
-    # inference_api loads these components directly
-    model_data = {
+    return {
         "user_idx":      user_idx,
         "movie_idx":     movie_idx,
         "user_factors":  user_factors,
@@ -79,12 +83,10 @@ def train_model(train_df):
         "mean_rating":   mean_rating,
         "n_components":  N_COMPONENTS,
     }
-    return model_data
 
 
 def make_predict_fn(model_data):
-    """Build a predict function from model_data dict for eval."""
-    class _Wrapper:
+    class _W:
         def predict(self, pairs):
             preds = []
             for pair in pairs:
@@ -97,10 +99,9 @@ def make_predict_fn(model_data):
                     model_data["user_factors"][u],
                     model_data["movie_factors"][m],
                 ]).reshape(1, -1)
-                pred = model_data["regressor"].predict(feat)[0]
-                preds.append(float(np.clip(pred, 1.0, 5.0)))
+                preds.append(float(np.clip(model_data["regressor"].predict(feat)[0], 1.0, 5.0)))
             return np.array(preds)
-    return _Wrapper()
+    return _W()
 
 
 def save_model(model_data, version):
@@ -121,13 +122,11 @@ def reload_inference_api():
         r = requests.post(f"{INFERENCE_API_URL}/model/reload", timeout=10)
         if r.status_code == 200:
             logger.info("Inference API reloaded new model successfully")
-        else:
-            logger.warning(f"Reload returned {r.status_code}")
     except Exception as e:
         logger.warning(f"Could not reload inference API: {e}")
 
 
-def main():
+def run_training():
     start   = time.time()
     version = f"v{int(start)}"
     logger.info(f"=== Training run starting | version: {version} ===")
@@ -160,11 +159,38 @@ def main():
 
         save_model(model_data, version)
         mlflow.log_param("status", "deployed")
+        mlflow.log_metric("training_time_seconds", round(time.time() - start, 2))
 
         reload_inference_api()
-        elapsed = time.time() - start
-        mlflow.log_metric("training_time_seconds", round(elapsed, 2))
-        logger.info(f"=== Training complete in {elapsed:.1f}s | RMSE: {metrics['rmse']} ===")
+        logger.info(f"=== Training complete in {time.time()-start:.1f}s | RMSE: {metrics['rmse']} ===")
+
+
+def main():
+    """
+    Long-running service mode.
+    Watches Redis for a retrain trigger flag set by the scheduler.
+    WHY: Avoids Docker-in-Docker issues on Mac.
+    """
+    logger.info("Trainer waiting for Redis...")
+    while True:
+        try:
+            redis_client.ping()
+            logger.info("Redis connected — trainer ready, watching for trigger")
+            break
+        except:
+            time.sleep(3)
+
+    # Run once on startup
+    run_training()
+
+    # Then watch for triggers
+    while True:
+        trigger = redis_client.get("scheduler:retrain_trigger")
+        if trigger == "1":
+            logger.info("Retrain trigger detected!")
+            redis_client.delete("scheduler:retrain_trigger")
+            run_training()
+        time.sleep(10)
 
 
 if __name__ == "__main__":

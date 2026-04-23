@@ -1,9 +1,3 @@
-# ============================================================
-# data-flywheel/docker-compose.yml
-# ============================================================
-# One command to rule them all: docker compose up --build
-# ============================================================
-
 services:
 
   redis:
@@ -30,9 +24,9 @@ services:
       --default-artifact-root /mlruns
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   inference_api:
     build: ./services/inference_api
@@ -67,12 +61,7 @@ services:
 
   scheduler:
     build: ./services/scheduler
-    volumes:
-      - ./data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
     env_file: .env
-    environment:
-      - DOCKER_HOST=unix:///var/run/docker.sock
     depends_on:
       redis:
         condition: service_healthy
@@ -85,8 +74,8 @@ services:
     environment:
       - INFERENCE_API_URL=http://inference_api:8000
     depends_on:
+      redis:
+        condition: service_healthy
       mlflow:
         condition: service_healthy
-    profiles:
-      - training
 
