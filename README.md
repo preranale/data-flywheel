@@ -26,35 +26,6 @@ Open `http://localhost:5173` after running `docker compose up --build`
 
 ---
 
-## Architecture
-
-```text
-React UI (port 5173)
-    |
-    |-- GET /recommend/{id} --> Inference API --> recommendations
-    |
-    |-- POST /feedback --> Feedback API --> Redis Stream
-                                                |
-                                       Feature Pipeline
-                                       reads + cleans events
-                                       merges into train.csv
-                                                |
-                                          Scheduler
-                                       every 30s: 50 new events?
-                                                |
-                                          Trainer
-                                       SVD + Ridge Regression
-                                       RMSE eval gate
-                                       logs to MLflow
-                                                |
-                                       Inference API
-                                       hot-swaps new model
-                                                |
-                                          (loop repeats)
-```
-
----
-
 ## Services
 
 | Service | Port | Role |
@@ -84,6 +55,70 @@ React UI (port 5173)
 
 ---
 
+## Key Design Decisions
+
+**Why Redis Streams over Kafka?**
+Kafka needs Zookeeper, JVM, and heavy config. Redis Streams gives the same persistent log semantics at a fraction of the complexity.
+
+**Why SVD + Ridge over a neural network?**
+Trains in seconds on CPU. Interpretable. Competitive with neural approaches at this scale. Matrix factorisation is what Netflix used in production.
+
+**Why delta-based retrain trigger?**
+Total event count only triggers once. Delta (new events since last run) correctly measures new information arriving.
+
+**Why separate Feedback and Inference APIs?**
+Inference must respond in milliseconds. Feedback can be async. Coupling them adds latency to the hot path.
+
+**Why an eval gate?**
+Without it, a buggy training run deploys a worse model silently. RMSE < 1.0 and coverage > 90% must pass before going live.
+
+---
+
+## How the Flywheel Closes
+
+1. Feature pipeline downloads MovieLens (100k ratings) on first run
+2. Trainer trains initial SVD model on that base data
+3. Inference API loads model, starts serving recommendations
+4. User interacts in React UI → Feedback API writes to Redis Stream
+5. Feature pipeline reads events, cleans them, appends to train CSV
+6. Scheduler detects 50+ new events → sets Redis trigger flag
+7. Trainer picks up trigger, retrains on base data + all feedback
+8. Eval gate: RMSE < 1.0 and coverage > 90% must pass
+9. Model saved → Inference API hot-reloads without restart
+10. Better recommendations → more engagement → loop continues
+
+---
+
+## Architecture
+
+```text
+React UI (port 5173)
+    |
+    |-- GET /recommend/{id} --> Inference API --> recommendations
+    |
+    |-- POST /feedback -------> Feedback API --> Redis Stream
+                                                      |
+                                             Feature Pipeline
+                                             reads + cleans events
+                                             merges into train.csv
+                                                      |
+                                               Scheduler
+                                             checks every 30s
+                                             50 new events? fire
+                                                      |
+                                               Trainer
+                                             SVD + Ridge Regression
+                                             RMSE eval gate
+                                             logs to MLflow
+                                                      |
+                                             Inference API
+                                             hot-swaps new model
+                                                      |
+                                              (loop repeats)
+```
+
+---
+
 ## Quick Start
 
 ```bash
@@ -102,83 +137,12 @@ docker compose up --build
 
 # 5. Start UI (new terminal)
 cd services/ui && npm run dev
-
-# 6. Open
-# React UI   → http://localhost:5173
-# MLflow     → http://localhost:5001
-# API docs   → http://localhost:8002/docs
 ```
 
----
-
-## Try via curl
-
-```bash
-# Get recommendations
-curl http://localhost:8002/recommend/1
-
-# Rate a movie
-curl -X POST http://localhost:8001/feedback/rating \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "movie_id": 1, "rating": 4.5}'
-
-# Click a movie
-curl -X POST http://localhost:8001/feedback/click \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "movie_id": 2, "position": 3}'
-
-# Skip a movie
-curl -X POST http://localhost:8001/feedback/skip \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "movie_id": 3}'
-
-# Check event count
-curl http://localhost:8001/feedback/stats
-
-# Simulate 50 users to trigger auto-retrain
-for i in $(seq 1 25); do
-  curl -s -X POST http://localhost:8001/feedback/rating \
-    -H "Content-Type: application/json" \
-    -d "{\"user_id\": $i, \"movie_id\": $((i % 10 + 1)), \"rating\": 4.0}" > /dev/null
-  curl -s -X POST http://localhost:8001/feedback/click \
-    -H "Content-Type: application/json" \
-    -d "{\"user_id\": $i, \"movie_id\": $((i % 5 + 1)), \"position\": $i}" > /dev/null
-done
-```
-
----
-
-## Key Design Decisions
-
-**Why Redis Streams over Kafka?**
-Kafka needs Zookeeper, JVM, and heavy config. Redis Streams gives the same persistent log semantics at a fraction of the complexity.
-
-**Why SVD + Ridge over a neural network?**
-Trains in seconds on CPU. Interpretable. Competitive with neural approaches at this scale. Matrix factorisation is what Netflix used in production.
-
-**Why delta-based retrain trigger?**
-Total event count only triggers once. Delta (new events since last run) correctly measures new information arriving — the right signal for retraining.
-
-**Why separate Feedback and Inference APIs?**
-Inference must respond in milliseconds. Feedback can be async. Coupling them adds latency to the hot path and creates a single point of failure.
-
-**Why an eval gate?**
-Without it, a buggy training run deploys a worse model silently. RMSE < 1.0 and coverage > 90% must pass before the new model goes live.
-
----
-
-## How the Flywheel Closes
-
-1. Feature pipeline downloads MovieLens (100k ratings) on first run
-2. Trainer trains initial SVD model on that base data
-3. Inference API loads model, starts serving recommendations
-4. User interacts in React UI → Feedback API writes to Redis Stream
-5. Feature pipeline reads events, cleans them, appends to train CSV
-6. Scheduler detects 50+ new events → sets Redis trigger flag
-7. Trainer picks up trigger, retrains on base data + all feedback
-8. Eval gate: RMSE < 1.0 and coverage > 90% must pass
-9. Model saved → Inference API hot-reloads without restart
-10. Better recommendations → more engagement → loop continues
+Open these in your browser:
+- React UI → http://localhost:5173
+- MLflow   → http://localhost:5001
+- API docs → http://localhost:8002/docs
 
 ---
 
@@ -227,9 +191,6 @@ docker compose ps
 
 # Watch scheduler + trainer live
 docker compose logs -f scheduler trainer
-
-# Feature pipeline logs
-docker compose logs feature_pipeline
 
 # All logs
 docker compose logs -f
