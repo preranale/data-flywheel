@@ -79,3 +79,11 @@ services:
       mlflow:
         condition: service_healthy
 
+
+  ui:
+    build: ./services/ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - inference_api
+      - feedback_api
