@@ -28,30 +28,30 @@ Open `http://localhost:5173` after running `docker compose up --build`
 
 ## Services
 
-| Service | Port | Role |
-|---|---|---|
-| `ui` | 5173 | React dashboard |
-| `inference_api` | 8002 | Serves recommendations |
-| `feedback_api` | 8001 | Captures clicks, ratings, skips |
-| `feature_pipeline` | — | ETL: Redis → clean CSV |
-| `scheduler` | — | Triggers retraining at threshold |
-| `trainer` | — | SVD model + MLflow logging |
-| `redis` | 6379 | Event stream (message queue) |
-| `mlflow` | 5001 | Experiment tracking + model registry |
+| Service            | Port | Role                                 |
+| ------------------ | ---- | ------------------------------------ |
+| `ui`               | 5173 | React dashboard                      |
+| `inference_api`    | 8002 | Serves recommendations               |
+| `feedback_api`     | 8001 | Captures clicks, ratings, skips      |
+| `feature_pipeline` | —    | ETL: Redis → clean CSV               |
+| `scheduler`        | —    | Triggers retraining at threshold     |
+| `trainer`          | —    | SVD model + MLflow logging           |
+| `redis`            | 6379 | Event stream (message queue)         |
+| `mlflow`           | 5001 | Experiment tracking + model registry |
 
 ---
 
 ## Tech Stack
 
-| Layer | Tool | Why |
-|---|---|---|
-| Frontend | React + Vite | Live dashboard, real-time event log |
-| API | FastAPI | Async, auto-docs, Pydantic validation |
-| Queue | Redis Streams | Lightweight Kafka alternative |
-| ML | SVD + Ridge Regression | Fast CPU training, interpretable |
-| Tracking | MLflow | Industry standard, beautiful UI |
-| DevOps | Docker Compose | One command boots everything |
-| Dataset | MovieLens 100k | Real ratings, free, well known |
+| Layer    | Tool                   | Why                                   |
+| -------- | ---------------------- | ------------------------------------- |
+| Frontend | React + Vite           | Live dashboard, real-time event log   |
+| API      | FastAPI                | Async, auto-docs, Pydantic validation |
+| Queue    | Redis Streams          | Lightweight Kafka alternative         |
+| ML       | SVD + Ridge Regression | Fast CPU training, interpretable      |
+| Tracking | MLflow                 | Industry standard, beautiful UI       |
+| DevOps   | Docker Compose         | One command boots everything          |
+| Dataset  | MovieLens 100k         | Real ratings, free, well known        |
 
 ---
 
@@ -140,13 +140,16 @@ cd services/ui && npm run dev
 ```
 
 Open these in your browser:
+
 - React UI → http://localhost:5173
-- MLflow   → http://localhost:5001
+- MLflow → http://localhost:5001
 - API docs → http://localhost:8002/docs
 
 ---
 
 ## Project Structure
+
+```text
 data-flywheel/
 ├── services/
 │   ├── ui/                  # React + Vite dashboard
@@ -180,6 +183,7 @@ data-flywheel/
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
+```
 
 ---
 
